@@ -17,6 +17,7 @@ ERROR_EVENT_NAME = 3
 ERROR_CONNECTION = 4
 ERROR_UNKNOWN = 5
 ERROR_TOKEN = 6
+ERROR_CAMPAIGN_IDS = 7
 
 APNS = "apns"
 GCM = "gcm"
@@ -26,6 +27,26 @@ def init(key):
         'content-type': 'application/json',
         'X-Outbound-Client': 'Python/{0}'.format(version.VERSION),
         'X-Outbound-Key': key,})
+
+def unsubscribe(user_id, all=False, campaign_ids=None, on_error=None, on_success=None):
+    __subscription(
+        user_id,
+        unsubscribe=True,
+        all=all,
+        campaign_ids=campaign_ids,
+        on_error=on_error,
+        on_success=on_success,
+    )
+
+def subscribe(user_id, all=False, campaign_ids=None, on_error=None, on_success=None):
+    __subscription(
+        user_id,
+        unsubscribe=False,
+        all=all,
+        campaign_ids=campaign_ids,
+        on_error=on_error,
+        on_success=on_success,
+    )
 
 def disable_token(platform, user_id, token, on_error=None, on_success=None):
     """ Disable a device token for a user.
@@ -242,6 +263,43 @@ def track(user_id, event, first_name=None, last_name=None, email=None,
     except requests.exceptions.ConnectionError:
         on_error(ERROR_CONNECTION, __error_message(ERROR_CONNECTION))
 
+def __subscription(user_id, unsubscribe, all=False, campaign_ids=None, on_error=None, on_success=None):
+    on_error = on_error or __on_error
+    on_success = on_success or __on_success
+
+    if not hasattr(this, '__HEADERS'):
+        on_error(ERROR_INIT, __error_message(ERROR_INIT))
+        return
+
+    if not isinstance(user_id, (basestring, Number)):
+        on_error(ERROR_USER_ID, __error_message(ERROR_USER_ID))
+        return
+
+    if not all and (not isinstance(campaign_ids, (list, tuple)) or len(campaign_ids) == 0):
+        on_error(ERROR_TOKEN, __error_message(ERROR_CAMPAIGN_IDS))
+        return
+
+    url = "%s/%s/%s" % (__BASE_URL, ('unsubscribe' if unsubscribe else 'subscribe'), ('all' if all else 'campaigns'))
+    data = dict(
+        user_id=user_id,
+    )
+
+    if not all:
+        data['campaign_ids'] = campaign_ids
+
+    try:
+        resp = requests.post(
+            url,
+            data=json.dumps(data),
+            headers=getattr(this, '__HEADERS'),)
+
+        if resp.status_code >= 200 and resp.status_code < 400:
+            on_success()
+        else:
+            on_error(ERROR_UNKNOWN, resp.text)
+    except requests.exceptions.ConnectionError:
+        on_error(ERROR_CONNECTION, __error_message(ERROR_CONNECTION))
+
 def __device_token(platform, register, user_id, token, on_error=None, on_success=None):
     on_error = on_error or __on_error
     on_success = on_success or __on_success
@@ -337,6 +395,8 @@ def __error_message(code):
         return "Unknown error occurred."
     elif code == ERROR_TOKEN:
         return "Token must be a string."
+    elif code == ERROR_CAMPAIGN_IDS:
+        return "One or more campaigns must be specified."
 
 def __on_error(code, err):
     pass
